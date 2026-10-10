@@ -1,0 +1,9 @@
+- id: sfdnormalize
+  name: Normalize SFD files
+  description: This hook normalizes SFD files.
+  entry: sfdnormalize --replace
+  language: python
+  files: |
+    (?x)^(
+      .*\.sfd
+    )$
