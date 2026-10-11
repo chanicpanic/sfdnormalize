@@ -35,7 +35,7 @@ from typing import Optional, List
 from . import *
 
 import argparse
-import io, sys, re
+import io, re
 
 import sfdutf7
 
@@ -87,15 +87,11 @@ def normalize_point(m):
 def should_drop(proc: RegexpProcessor, fl: str, keep: Optional[List[str]] = None) -> bool:
     return proc.test(DROP_RE, fl) and (keep == None or not any([fl.startswith(k) for k in keep]))
 
-def process_sfd_file(args):
-    sfdname = args.input_file
-    outname = args.output_file
+def process_sfd_file(input_file, args):
+    sfdname = input_file
     fp = open(sfdname, 'rt')
 
-    if args.replace:
-        out = io.StringIO()
-    else:
-        out = open(outname, 'wt')
+    out = io.StringIO()
 
     fl = fp.readline()
     proc = RegexpProcessor()
@@ -285,38 +281,31 @@ def process_sfd_file(args):
 
     fp.close()
 
-    if args.replace:
-        out.seek(0)
-        to_write = out.read()
-        out = open(sfdname, "wt+")
-        out.write(to_write)
+    out.seek(0)
+    to_write = out.read()
+    out = open(sfdname, "wt+")
+    out.write(to_write)
 
     out.close()
 
 # Program entry point
 def main():
-    argparser = argparse.ArgumentParser(description="Normalize Spline Font Database (SFD) files", prog=__package__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    argparser.add_argument("input_file", help="Input SFD before normalization")
-    argparser.add_argument("output_file", help="Path to write normalized SFD", nargs="?")
+    argparser = argparse.ArgumentParser(description="Normalize Spline Font Database (SFD) files in place", prog=__package__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    argparser.add_argument("input_files", help="Input SFD file(s) before normalization", nargs="+")
 
-    argparser.add_argument("--replace", "-r", help="Replace in place", action="store_true")
     argparser.add_argument("--version", "-V", action="version", version="%(prog)s {}".format(VERSION_STR))
     argparser.add_argument("--keep", "-k", help="Keep lines beginning with these even if they'd be normally dropped. (Can provide multiple times.)", action="append")
     argparser.add_argument("--drop", "-D", help="Drop lines beginning with these even if they'd be normally kept. (Can provide multiple times.)", action="append")
     argparser.add_argument("--sfd-version", "-s", help="By default, latest SFD revision known to this program will be written, unless specified here", default=SFD_VERSION_STR, metavar="VERSION")
 
-    # Note [len('usage: '):] hack is removeprefix("usage: ") from Python 3.9+, cleanup if we ever require new Python for something else
-    argparser.usage = argparser.format_usage()[len('usage: '):].rstrip() + "\nhttps://github.com/alerque/sfdnormalize\n(For authors, see AUTHORS in source distribution.)"
     args = argparser.parse_args()
 
     if args.drop and len(args.drop) > 0:
         global DROP_RE
         DROP_RE = re.compile(drop_regex(args.drop))
 
-    if not args.output_file and not args.replace:
-        argparser.error(message="Must provide either a file to output to or -r")
-
-    process_sfd_file(args)
+    for input_file in args.input_files:
+        process_sfd_file(input_file, args)
 
 if __name__ == '__main__':
     main()
