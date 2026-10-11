@@ -96,11 +96,19 @@ def process_sfd_file(input_file, args):
     fl = fp.readline()
     proc = RegexpProcessor()
 
-    if proc.test(FONT_RE, fl) == False:
-        print("%s is not a valid spline font database" % sfdname)
+    is_sfd = proc.test(FONT_RE, fl)
+    is_glyph = proc.test(STARTCHAR_RE, fl)
+    if not is_sfd and not is_glyph:
+        print("%s is not a valid spline font database or glyph" % sfdname)
         return
 
-    out.write("SplineFontDB: {}\n".format(args.sfd_version))
+    if is_sfd:
+        out.write("SplineFontDB: {}\n".format(args.sfd_version))
+        in_chars = False
+        fl = fp.readline()
+    else:
+        in_chars = True
+
 
     curglyph = ''
     cur_gid = 0
@@ -108,14 +116,62 @@ def process_sfd_file(input_file, args):
     max_dec_enc = 0
     max_unicode = 0
     new_gid = 0
-    in_chars = False
     in_bdf = False
     bmp_header = ()
     bdf = OrderedDict()
     glyphs = OrderedDict()
     feat_names = {}
 
-    fl = fp.readline()
+    def write_glyph(glyph):
+        out.write("StartChar: %s\n" % glyph['name'])
+        out.write("Encoding: %s %s %s\n" % (glyph["dec_enc"], glyph['unicode'], glyph["gid"]))
+
+        glyph_lines = iter(glyph['lines'])
+        skip_lines = 0
+        for gl in glyph_lines:
+            if skip_lines > 0:
+                skip_lines -= 1
+                continue
+            if should_drop(proc, gl, keep=args.keep):
+                continue
+            if gl.startswith("Refer: "):
+                # deselect selected references
+                gl = SELECTED_REF_RE.sub(r"\1N\2", gl)
+            elif gl.endswith(" [ddx={} ddy={} ddh={} ddv={}]\n"):
+                gl = gl.replace(" [ddx={} ddy={} ddh={} ddv={}]", "")
+            elif gl == fealines_tok:
+                for (flt, fll) in sorted(glyph['fealines']):
+                    out.write(fll)
+                continue
+            elif proc.test(HINTS_RE, gl):
+                continue
+            elif gl.startswith("Validated:"):
+                continue
+            elif proc.test(ANCHORPOINT_RE, gl):
+                anchorpoints = list()
+                skip_lines -= 1
+                for ggl in glyph['lines']:
+                    if proc.test(ANCHORPOINT_RE, ggl):
+                        skip_lines += 1
+                        matched = proc.match().groups()
+                        anchorpoints.append(list(matched))
+                for i, ap in enumerate(anchorpoints, start=0):
+                    ap[0] = sfdutf7.decode(ap[0].encode('ascii'), unquote=True)
+                    anchorpoints[i] = tuple(ap)
+                anchorpoints_d = {ap[0]: dict() for ap in anchorpoints}
+                for ap in anchorpoints:
+                    anchorpoints_d[ap[0]] = ap[1:]
+                for ap in sorted(set(anchorpoints_d.keys())):
+                    out.write("AnchorPoint: %s %s\n" %
+                              (sfdutf7.encode(ap,
+                                              quote=True).decode('ascii'),
+                               " ".join(anchorpoints_d[ap])))
+
+                continue
+
+            out.write(gl)
+        out.write("EndChar\n")
+
     while fl:
         if should_drop(proc, fl, keep=args.keep):
             fl = fp.readline()
@@ -156,54 +212,8 @@ def process_sfd_file(input_file, args):
                 if glyph["dec_enc"] < 0: # GitHub issue alerque/sfdnormalize#3
                     continue
                 out.write("\n")
-                out.write("StartChar: %s\n" % glyph['name'])
-                out.write("Encoding: %s %s %s\n" % (glyph["dec_enc"], glyph['unicode'], glyph["gid"]))
 
-                glyph_lines = iter(glyph['lines'])
-                skip_lines = 0
-                for gl in glyph_lines:
-                    if skip_lines > 0:
-                        skip_lines -= 1
-                        continue
-                    if should_drop(proc, gl, keep=args.keep):
-                        continue
-                    if gl.startswith("Refer: "):
-                        # deselect selected references
-                        gl = SELECTED_REF_RE.sub(r"\1N\2", gl)
-                    elif gl.endswith(" [ddx={} ddy={} ddh={} ddv={}]\n"):
-                        gl = gl.replace(" [ddx={} ddy={} ddh={} ddv={}]", "")
-                    elif gl == fealines_tok:
-                        for (flt, fll) in sorted(glyph['fealines']):
-                            out.write(fll)
-                        continue
-                    elif proc.test(HINTS_RE, gl):
-                        continue
-                    elif gl.startswith("Validated:"):
-                        continue
-                    elif proc.test(ANCHORPOINT_RE, gl):
-                        anchorpoints = list()
-                        skip_lines -= 1
-                        for ggl in glyph['lines']:
-                            if proc.test(ANCHORPOINT_RE, ggl):
-                                skip_lines += 1
-                                matched = proc.match().groups()
-                                anchorpoints.append(list(matched))
-                        for i, ap in enumerate(anchorpoints, start=0):
-                            ap[0] = sfdutf7.decode(ap[0].encode('ascii'), unquote=True)
-                            anchorpoints[i] = tuple(ap)
-                        anchorpoints_d = {ap[0]: dict() for ap in anchorpoints}
-                        for ap in anchorpoints:
-                            anchorpoints_d[ap[0]] = ap[1:]
-                        for ap in sorted(set(anchorpoints_d.keys())):
-                            out.write("AnchorPoint: %s %s\n" %
-                                      (sfdutf7.encode(ap,
-                                                      quote=True).decode('ascii'),
-                                       " ".join(anchorpoints_d[ap])))
-
-                        continue
-
-                    out.write(gl)
-                out.write("EndChar\n")
+                write_glyph(glyph)
 
             out.write("EndChars\n")
 
@@ -280,6 +290,9 @@ def process_sfd_file(input_file, args):
         fl = fp.readline()
 
     fp.close()
+
+    if is_glyph:
+        write_glyph(next(iter(glyphs.values())))
 
     out.seek(0)
     to_write = out.read()
