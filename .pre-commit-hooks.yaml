@@ -1,9 +1,11 @@
 - id: sfdnormalize
   name: Normalize SFD files
-  description: This hook normalizes SFD files.
-  entry: sfdnormalize --replace
+  description: This hook normalizes SFD and some SFDIR files (font.props, \*.glyph).
+  entry: sfdnormalize
   language: python
   files: |
-    (?x)^(
-      .*\.sfd
+    (?x)(
+      \.sfd|
+      \.sfdir/font.props|
+      \.sfdir/.*\.glyph
     )$
