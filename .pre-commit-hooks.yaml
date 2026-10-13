@@ -1,5 +1,5 @@
 - id: sfdnormalize
-  name: Normalize SFD files
+  name: normalize sfd files
   description: This hook normalizes SFD and some SFDIR files (font.props, \*.glyph).
   entry: sfdnormalize
   language: python
